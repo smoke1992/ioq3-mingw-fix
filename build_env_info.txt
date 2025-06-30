@@ -1,0 +1,23 @@
+2025-06-30
+
+ps>winver
+windows 10 pro 22h2(inner ver 19045.5965)
+
+#then run basetool msys2-mingw64
+
+# pacman -Q msys2-runtime
+msys2-runtime 3.5.7-2
+
+# gcc --version
+gcc.exe (Rev5, Built by MSYS2 project) 15.1.0
+
+# ld --version
+GNU ld (GNU Binutils) 2.44
+
+# pacman -Q mingw-w64-x86_64-crt-git mingw-w64-x86_64-headers-git
+mingw-w64-x86_64-crt-git 13.0.0.r29.gb351226e3-1
+mingw-w64-x86_64-headers-git 13.0.0.r29.gb351226e3-1
+
+# pacman -Q mingw-w64-x86_64-crt mingw-w64-x86_64-headers
+mingw-w64-x86_64-crt-git 13.0.0.r29.gb351226e3-1
+mingw-w64-x86_64-headers-git 13.0.0.r29.gb351226e3-1
