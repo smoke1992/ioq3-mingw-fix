@@ -742,7 +742,8 @@ ifdef MINGW
       $(call bin_path, $(TOOLS_MINGW_PREFIX)-gcc))))
   endif
 
-  LIBS= -lws2_32 -lwinmm -lpsapi
+  #gemini修改：针对最后链接阶段 undefined reference to '__imp_CoTaskMemFree'
+  LIBS= -lws2_32 -lwinmm -lpsapi -lole32
   AUTOUPDATER_LIBS += -lwininet
 
   # clang 3.4 doesn't support this

@@ -102,43 +102,71 @@ Sys_DefaultHomePath
 */
 char *Sys_DefaultHomePath( void )
 {
-	TCHAR szPath[MAX_PATH];
-	FARPROC qSHGetFolderPath;
-	HMODULE shfolder = LoadLibrary("shfolder.dll");
-
-	if(shfolder == NULL)
-	{
-		Com_Printf("Unable to load SHFolder.dll\n");
-		return NULL;
-	}
-
+	// BUILD FIX: Use modern SHGetKnownFolderPath and fall back to legacy SHGetFolderPathA.
+	// This resolves compilation errors on modern MinGW-w64 environments.
+	// We define the function pointers and GUIDs needed for the new API.
+	typedef HRESULT (WINAPI *SHGetKnownFolderPath_t)(const GUID *rfid, DWORD dwFlags, HANDLE hToken, PWSTR *ppszPath);
+	typedef HRESULT (WINAPI *SHGetFolderPathA_t)(HWND hwnd, int csidl, HANDLE hToken, DWORD dwFlags, LPSTR pszPath);
+	
+	const GUID FOLDERID_RoamingAppData = {0x3EB685DB, 0x65F9, 0x4CF6, {0xA0, 0x3A, 0xE3, 0xEF, 0x65, 0x72, 0x9F, 0x3D}};
+	
+	HMODULE shell32, shfolder;
+	
 	if(!*homePath && com_homepath)
 	{
-		qSHGetFolderPath = GetProcAddress(shfolder, "SHGetFolderPathA");
-		if(qSHGetFolderPath == NULL)
+		qboolean success = qfalse;
+		
+		// Try the modern API first (Windows Vista and newer)
+		shell32 = LoadLibrary("shell32.dll");
+		if (shell32)
 		{
-			Com_Printf("Unable to find SHGetFolderPath in SHFolder.dll\n");
-			FreeLibrary(shfolder);
-			return NULL;
+			SHGetKnownFolderPath_t qSHGetKnownFolderPath = (SHGetKnownFolderPath_t)GetProcAddress(shell32, "SHGetKnownFolderPath");
+			if (qSHGetKnownFolderPath)
+			{
+				PWSTR pszPath = NULL;
+				if (SUCCEEDED(qSHGetKnownFolderPath(&FOLDERID_RoamingAppData, 0, NULL, &pszPath)))
+				{
+					// Convert wide string to multi-byte string
+					WideCharToMultiByte(CP_ACP, 0, pszPath, -1, homePath, sizeof(homePath), NULL, NULL);
+					CoTaskMemFree(pszPath); // Free memory allocated by the API
+					success = qtrue;
+				}
+			}
+			FreeLibrary(shell32);
+		}
+		
+		// Fallback to the legacy API (for Windows XP) if the modern one failed
+		if (!success)
+		{
+			shfolder = LoadLibrary("shfolder.dll");
+			if (shfolder)
+			{
+				SHGetFolderPathA_t qSHGetFolderPath = (SHGetFolderPathA_t)GetProcAddress(shfolder, "SHGetFolderPathA");
+				if (qSHGetFolderPath)
+				{
+					if (SUCCEEDED(qSHGetFolderPath(NULL, CSIDL_APPDATA, NULL, 0, homePath)))
+					{
+						success = qtrue;
+					}
+				}
+				FreeLibrary(shfolder);
+			}
 		}
 
-		if( !SUCCEEDED( qSHGetFolderPath( NULL, CSIDL_APPDATA,
-						NULL, 0, szPath ) ) )
+		if (!success)
 		{
-			Com_Printf("Unable to detect CSIDL_APPDATA\n");
-			FreeLibrary(shfolder);
+			Com_Printf("Unable to detect user application data folder.\n");
 			return NULL;
 		}
 		
-		Com_sprintf(homePath, sizeof(homePath), "%s%c", szPath, PATH_SEP);
-
+		// Append the rest of the path
+		Q_strcat(homePath, sizeof(homePath), "\\");
 		if(com_homepath->string[0])
 			Q_strcat(homePath, sizeof(homePath), com_homepath->string);
 		else
 			Q_strcat(homePath, sizeof(homePath), HOMEPATH_NAME_WIN);
 	}
-
-	FreeLibrary(shfolder);
+	
 	return homePath;
 }
 
@@ -238,34 +266,58 @@ char* Sys_MicrosoftStorePath(void)
 #ifdef MSSTORE_PATH
 	if (!microsoftStorePath[0]) 
 	{
-		TCHAR szPath[MAX_PATH];
-		FARPROC qSHGetFolderPath;
-		HMODULE shfolder = LoadLibrary("shfolder.dll");
-
-		if(shfolder == NULL)
+		// BUILD FIX: Same as Sys_DefaultHomePath, use modern API with fallback.
+		typedef HRESULT (WINAPI *SHGetKnownFolderPath_t)(const GUID *rfid, DWORD dwFlags, HANDLE hToken, PWSTR *ppszPath);
+		typedef HRESULT (WINAPI *SHGetFolderPathA_t)(HWND hwnd, int csidl, HANDLE hToken, DWORD dwFlags, LPSTR pszPath);
+		
+		const GUID FOLDERID_ProgramFiles = {0x905e63b6, 0xc1bf, 0x494e, {0xb2, 0x9c, 0x65, 0xb7, 0x32, 0xd3, 0xd2, 0x1a}};
+		
+		HMODULE shell32, shfolder;
+		char szPath[MAX_PATH] = { 0 };
+		qboolean success = qfalse;
+		
+		// Try the modern API first
+		shell32 = LoadLibrary("shell32.dll");
+		if (shell32)
 		{
-			Com_Printf("Unable to load SHFolder.dll\n");
+			SHGetKnownFolderPath_t qSHGetKnownFolderPath = (SHGetKnownFolderPath_t)GetProcAddress(shell32, "SHGetKnownFolderPath");
+			if (qSHGetKnownFolderPath)
+			{
+				PWSTR pszPath = NULL;
+				if (SUCCEEDED(qSHGetKnownFolderPath(&FOLDERID_ProgramFiles, 0, NULL, &pszPath)))
+				{
+					WideCharToMultiByte(CP_ACP, 0, pszPath, -1, szPath, sizeof(szPath), NULL, NULL);
+					CoTaskMemFree(pszPath);
+					success = qtrue;
+				}
+			}
+			FreeLibrary(shell32);
+		}
+		
+		// Fallback to the legacy API
+		if (!success)
+		{
+			shfolder = LoadLibrary("shfolder.dll");
+			if (shfolder)
+			{
+				SHGetFolderPathA_t qSHGetFolderPath = (SHGetFolderPathA_t)GetProcAddress(shfolder, "SHGetFolderPathA");
+				if (qSHGetFolderPath)
+				{
+					if (SUCCEEDED(qSHGetFolderPath(NULL, CSIDL_PROGRAM_FILES, NULL, 0, szPath)))
+					{
+						success = qtrue;
+					}
+				}
+				FreeLibrary(shfolder);
+			}
+		}
+		
+		if (!success)
+		{
+			Com_Printf("Unable to detect Program Files folder.\n");
 			return microsoftStorePath;
 		}
-
-		qSHGetFolderPath = GetProcAddress(shfolder, "SHGetFolderPathA");
-		if(qSHGetFolderPath == NULL)
-		{
-			Com_Printf("Unable to find SHGetFolderPath in SHFolder.dll\n");
-			FreeLibrary(shfolder);
-			return microsoftStorePath;
-		}
-
-		if( !SUCCEEDED( qSHGetFolderPath( NULL, CSIDL_PROGRAM_FILES,
-						NULL, 0, szPath ) ) )
-		{
-			Com_Printf("Unable to detect CSIDL_PROGRAM_FILES\n");
-			FreeLibrary(shfolder);
-			return microsoftStorePath;
-		}
-
-		FreeLibrary(shfolder);
-
+		
 		// default: C:\Program Files\ModifiableWindowsApps\Quake 3\EN
 		Com_sprintf(microsoftStorePath, sizeof(microsoftStorePath), "%s%cModifiableWindowsApps%c%s%cEN", szPath, PATH_SEP, PATH_SEP, MSSTORE_PATH, PATH_SEP);
 	}
